@@ -1,5 +1,7 @@
 node_modules/
 .DS_Store
+# Secrets for local development
+.env
 # Proposal slides and PDF stay local
 *.pptx
 *.pdf

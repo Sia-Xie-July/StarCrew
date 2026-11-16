@@ -1,0 +1,11 @@
+# Only the API server and the shared modules it imports go to Cloud Run
+.git
+.gitignore
+.env
+node_modules/
+tests/
+css/
+index.html
+*.pptx
+*.pdf
+.DS_Store

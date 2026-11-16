@@ -29,14 +29,23 @@
     </svg>
   </div>
 
-  <!-- Sign-in: bring your own Anthropic API key -->
+  <!-- Sign-in: StarCrew access code (hosted Gemini) or your own Anthropic API key -->
   <section id="signin" class="screen">
     <div class="signin-card glass">
       <p class="eyebrow">✦ StarCrew</p>
-      <h1>Plan a stargazing night<br>with your own Claude key</h1>
-      <p class="muted">StarCrew runs on <b>your</b> Anthropic API credit. Paste a key from
-        <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a>
-        to use the AI planner.</p>
+      <h1>Plan a stargazing night<br>around Boston</h1>
+      <p class="muted">Enter an access code from the StarCrew team, or bring your own Anthropic API key.</p>
+
+      <form id="code-form" class="code-form" autocomplete="off">
+        <label for="access-code">Access code <span class="small">· runs on StarCrew's Gemini, free for you</span></label>
+        <div class="row tight">
+          <input id="access-code" type="password" placeholder="Access code" spellcheck="false" required>
+          <button type="submit" class="primary" id="code-btn">Enter</button>
+        </div>
+        <p id="code-error" class="error" hidden></p>
+      </form>
+
+      <div class="divider"><span>or use your own Claude key</span></div>
 
       <form id="signin-form" autocomplete="off">
         <label for="api-key">Anthropic API key</label>
@@ -47,14 +56,15 @@
 
         <label class="check"><input id="remember" type="checkbox"> Remember on this device</label>
 
-        <button type="submit" class="primary" id="signin-btn">Connect key</button>
+        <button type="submit" class="secondary" id="signin-btn">Connect key</button>
         <p id="signin-error" class="error" hidden></p>
       </form>
 
       <div class="privacy">
-        <p><b>Where your key goes:</b> nowhere but Anthropic. StarCrew has no server: this page runs
-          entirely in your browser and sends your key straight to api.anthropic.com with your own
-          planning requests. Without "Remember", it is cleared when you close the tab.</p>
+        <p><b>Where your Claude key goes:</b> nowhere but Anthropic. With your own key, the planner runs
+          entirely in your browser and sends the key straight to api.anthropic.com. Without
+          "Remember", it is cleared when you close the tab. The access code instead runs the planner
+          on StarCrew's server with Google Gemini.</p>
       </div>
 
       <div id="local-box" class="local" hidden>

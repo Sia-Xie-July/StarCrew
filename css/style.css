@@ -71,6 +71,11 @@ input, select, textarea {
   border-radius: 10px; padding: 10px 12px; width: 100%;
 }
 input:focus, select:focus, textarea:focus { outline: 2px solid var(--gold); outline-offset: 1px; }
+.code-form { margin-top: 18px; }
+.row.tight { margin-top: 0; flex-wrap: nowrap; align-items: stretch; }
+.row.tight input { flex: 1; min-width: 0; }
+.divider { display: flex; align-items: center; gap: 12px; margin: 22px 0 0; color: var(--muted); font-size: 13px; }
+.divider::before, .divider::after { content: ""; flex: 1; height: 1px; background: var(--line); }
 .check { display: flex; gap: 8px; align-items: center; margin: 6px 0 4px; color: var(--text); }
 .check input { width: auto; }
 .privacy { margin-top: 18px; padding: 12px 14px; border-radius: 12px; background: rgba(6,10,30,.5); font-size: 13px; color: var(--muted); }

@@ -1,13 +1,19 @@
-// StarCrew front end. There is no server: the agent, the tools and the API calls all run
-// in this page. The API key lives only in this browser (sessionStorage, or localStorage if
-// "Remember" is ticked) and is sent only to api.anthropic.com.
+// StarCrew front end. Two ways to run the planner:
+// - Access code: the request goes to StarCrew's API on Cloud Run, which runs the agent on
+//   Gemini and streams the same events back (server/ in this repo).
+// - Own Claude key: the agent, the tools and the API calls all run in this page. The key
+//   lives only in this browser (sessionStorage, or localStorage if "Remember" is ticked)
+//   and is sent only to api.anthropic.com.
 
 import { DEFAULT_MODEL, MODELS, checkKey, isLocal, localModels, runPlan as runAgent } from "./agent.js";
+import { HOSTED_API } from "./config.js";
 import { rankNights } from "./planner.js";
 import { DEFAULT_START } from "./sites.js";
 import { geocode } from "./weather.js";
 
 const KEY_NAME = "starcrew.apiKey";
+const CODE_NAME = "starcrew.accessCode";
+const HOSTED = "hosted";
 const MODEL_NAME = "starcrew.model";
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -18,7 +24,7 @@ const store = {
   clear(k) { try { localStorage.removeItem(k); sessionStorage.removeItem(k); } catch {} },
 };
 
-let state = { key: null, model: null, models: [], guest: false, start: null, calls: {}, plan: null };
+let state = { key: null, code: null, model: null, models: [], guest: false, start: null, calls: {}, plan: null };
 
 // ---------- night sky ----------
 (function starfield() {
@@ -94,12 +100,43 @@ async function init() {
     $("local-model").innerHTML = res.local.map((m) => `<option value="${m.id}">${esc(m.name)}</option>`).join("");
     $("local-box").hidden = false;
   }
+  const code = store.get(CODE_NAME);
   const saved = store.get(KEY_NAME);
-  if (saved) { state.key = saved; state.model = $("model").value; showApp(); }
+  if (code) useHosted(code, "Gemini");
+  else if (saved) { state.key = saved; state.model = $("model").value; showApp(); }
 }
 
 const modelName = (id) => (state.models.find((m) => m.id === id) || {}).name || id;
-const canPlan = () => !!state.key || isLocal(state.model);
+const isHosted = () => state.model === HOSTED && !!state.code;
+const canPlan = () => !!state.key || isLocal(state.model) || isHosted();
+
+function useHosted(code, label) {
+  state.code = code; state.key = null; state.guest = false; state.model = HOSTED;
+  state.models = [...state.models.filter((m) => m.id !== HOSTED), { id: HOSTED, name: label }];
+  showApp();
+}
+
+$("code-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const code = $("access-code").value.trim();
+  const btn = $("code-btn");
+  $("code-error").hidden = true;
+  btn.disabled = true; btn.textContent = "Checking…";
+  try {
+    const r = await fetch(`${HOSTED_API}/api/check`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code }),
+    }).then((r) => r.json());
+    if (!r.ok) throw new Error(r.error || "That access code isn't valid.");
+    store.set(CODE_NAME, code, false);
+    $("access-code").value = "";
+    useHosted(code, r.model);
+  } catch (err) {
+    $("code-error").textContent = err instanceof TypeError ? "Couldn't reach the StarCrew server. Try again in a minute." : err.message;
+    $("code-error").hidden = false;
+  } finally {
+    btn.disabled = false; btn.textContent = "Enter";
+  }
+});
 
 $("signin-form").addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -132,7 +169,8 @@ $("signout-btn").addEventListener("click", signOut);
 
 function signOut() {
   store.clear(KEY_NAME);
-  state.key = null; state.guest = false; state.model = null;
+  store.clear(CODE_NAME);
+  state.key = null; state.code = null; state.guest = false; state.model = null;
   $("app").hidden = true; $("signin").hidden = false;
 }
 
@@ -140,10 +178,11 @@ function showApp() {
   $("signin").hidden = true; $("app").hidden = false;
   $("account-chip").textContent = state.key
     ? `Your key · ${modelName(state.model)} · …${state.key.slice(-4)}`
+    : isHosted() ? `Access code · ${modelName(HOSTED)}`
     : isLocal(state.model) ? `Local · ${modelName(state.model)} · free` : "Guest · forecast only";
   $("signout-btn").textContent = canPlan() ? "Sign out" : "Sign in";
   $("plan-btn").disabled = !canPlan();
-  $("plan-btn").textContent = isLocal(state.model) ? "Plan with local model" : "Plan with Claude";
+  $("plan-btn").textContent = isHosted() ? "Plan with Gemini" : isLocal(state.model) ? "Plan with local model" : "Plan with Claude";
   $("guest-note").hidden = canPlan();
 }
 
@@ -217,12 +256,41 @@ async function runPlan() {
 
   try {
     const start = await resolveStart();
-    await runAgent({ apiKey: state.key, request: $("request").value, model: state.model, start, onEvent: handleEvent });
+    if (isHosted()) await runHosted(start);
+    else await runAgent({ apiKey: state.key, request: $("request").value, model: state.model, start, onEvent: handleEvent });
   } catch (err) {
     handleEvent({ type: "error", message: err.message });
   } finally {
     $("progress").hidden = true;
     btn.disabled = false; btn.textContent = btnLabel;
+  }
+}
+
+/** Run the planner on StarCrew's server (Gemini) and replay its event stream. */
+async function runHosted(start) {
+  const res = await fetch(`${HOSTED_API}/api/plan`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ code: state.code, request: $("request").value, start }),
+  });
+  if (!res.ok) {
+    const { error } = await res.json().catch(() => ({}));
+    if (res.status === 401) signOut();
+    throw new Error(error || `StarCrew server error ${res.status}`);
+  }
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    let i;
+    while ((i = buf.indexOf("\n")) >= 0) {
+      const line = buf.slice(0, i).trim();
+      buf = buf.slice(i + 1);
+      if (line) handleEvent(JSON.parse(line));
+    }
   }
 }
 
@@ -267,7 +335,7 @@ function handleEvent(ev) {
       $("note-box").hidden = !ev.text.trim();
       break;
     case "usage":
-      $("usage").textContent = `${ev.local ? "Ran locally (free)" : "Billed to your key"}: ${ev.input_tokens.toLocaleString()} input + ${ev.output_tokens.toLocaleString()} output tokens on ${ev.model}.`;
+      $("usage").textContent = `${ev.hosted ? "Ran on StarCrew's credit" : ev.local ? "Ran locally (free)" : "Billed to your key"}: ${ev.input_tokens.toLocaleString()} input + ${ev.output_tokens.toLocaleString()} output tokens on ${ev.model}.`;
       break;
     case "error":
       showError(ev.message);

@@ -7,29 +7,40 @@ forecast is, and writes a message you can paste into your group chat.
 
 **Live site:** https://sia-xie-july.github.io/StarCrew/
 
-**Design principle: the LLM reasons, deterministic tools supply the facts.** Claude
+**Design principle: the LLM reasons, deterministic tools supply the facts.** The model
 decides which tools to call and how to explain the trade-offs; every number it states
 comes from a tool result, and every recommendation links back to the tool calls behind it.
 
 > Term project for MIT 1.125 Agentic Engineering (Fall 2026). Status: **midpoint**.
 > The single-user planner works end to end; group coordination is next.
 
-## Bring your own API key, no server
+## Two ways to run the planner
 
-StarCrew is a static site. The agent loop, the tools and the API calls all run in the
-visitor's browser, so there is no backend and no shared API key:
+| | Access code | Your own Claude key |
+|---|---|---|
+| Model | Gemini 3.8 Flash on Google Vertex AI | Claude Opus 5.5 (Sonnet 5.5, Haiku 5.5 selectable) |
+| Where the agent runs | StarCrew's API on Google Cloud Run (`server/`) | Entirely in your browser |
+| Who pays | StarCrew's Google Cloud credit | Your Anthropic account |
+| Limits | Access code, 8 plans per hour per visitor, 150 per day | Your own account limits |
 
-- Each visitor signs in with **their own** Anthropic API key, so every request is billed
-  to their account. Get a key at <https://console.anthropic.com/settings/keys>.
+Both use the same system prompt, tools, plan verification and UI (`js/core.js`).
+
+**Access code.** The page sends the request and the code to the Cloud Run API, which runs
+the agent loop on Gemini and streams the same events back. On Cloud Run the API signs in
+to Vertex AI as its service account, so no API key is stored anywhere.
+
+**Own Claude key.** No StarCrew server is involved:
+
 - The key is checked on sign-in with a free Models API call (no tokens used).
 - It stays in the browser (`sessionStorage`, or `localStorage` if "Remember on this
   device" is ticked) and is sent only to `api.anthropic.com`. "Sign out" deletes it.
 - After each plan, the page shows how many tokens were billed to the key.
-- No key? "Explore the forecast without a key" shows the free 7-night forecast table.
+
+No key or code? "Explore the forecast without a key" shows the free 7-night forecast table.
 
 ## Run it locally
 
-Any static file server works. With Python:
+The web page is static. Serve it with any static file server, for example:
 
 ```bash
 python3 -m http.server 8000
@@ -49,6 +60,29 @@ headers that Ollama's CORS rules reject. Small local models are slow (about 2 mi
 plan on an 8B model) and sometimes skip `submit_plan`; the cards then fall back to the
 forecast tool's ranking, and the page says so.
 
+### The access-code API (Gemini)
+
+```bash
+npm install
+cp .env.example .env   # then fill in GEMINI_API_KEY and ACCESS_CODE; .env is git-ignored
+npm run dev            # API on http://localhost:8080
+```
+
+A page opened from `localhost` talks to this local API (see `js/config.js`).
+
+### Deploy the API to Cloud Run
+
+In a Google Cloud project with the Vertex AI API enabled:
+
+```bash
+gcloud run deploy starcrew-api --source . --region us-east1 --allow-unauthenticated \
+  --max-instances 1 --set-env-vars ACCESS_CODE=your-code,GOOGLE_CLOUD_PROJECT=your-project-id
+```
+
+Give the service's runtime service account the **Vertex AI User** role, put the service URL
+in `js/config.js`, and set a budget alert in Billing. `--max-instances 1` keeps the
+in-memory rate limits accurate.
+
 ## Tests
 
 ```bash
@@ -57,8 +91,9 @@ npm test
 ```
 
 Node's built-in test runner covers the astronomy (checked against published Moon phases
-and twilight times), scoring, time zones, and the agent loop against a scripted fake
-Claude API (no key or credit needed; the weather calls are real).
+and twilight times), scoring, time zones, both agent loops against scripted fake Claude
+and Gemini APIs, and the API server's access code, CORS and rate limits (no key or credit
+needed; the weather calls are real).
 
 ## How it works
 
@@ -79,7 +114,9 @@ Browser
 | Weather | `js/weather.js` | One Open-Meteo request for all sites, hourly cloud cover from three models; mean over the usable hours; **confidence** from model agreement (spread ≤15 points high, ≤30 medium, else low) |
 | Sites | `js/sites.js` | 12 curated dark sites in MA/NH with approximate Bortle class and notes; drive time is a straight-line estimate |
 | Planner | `js/planner.js` | Scores every (night, site): usable hours × (1 − cloud) × darkness factor, plus a go / maybe / no-go verdict |
-| Agent | `js/agent.js` | Claude Opus 5.5 by default (Sonnet 5.5 and Haiku 5.5 selectable) with the SDK tool runner, effort `medium`, server-side refusal fallback. Records every tool call; re-verifies each pick and attaches its sources |
+| Shared agent core | `js/core.js` | System prompt, tool definitions, call recorder, and the step that re-verifies each pick and attaches its sources |
+| Claude agent | `js/agent.js` | Claude Opus 5.5 by default (Sonnet 5.5 and Haiku 5.5 selectable) with the SDK tool runner, effort `medium`, server-side refusal fallback; runs in the browser |
+| Gemini API | `server/index.js`, `server/gemini.js` | Node HTTP server for Cloud Run: access code, CORS, rate limits; Gemini function-calling loop on Vertex AI |
 | Time | `js/time.js` | America/New_York wall-clock conversions with the built-in `Intl` API |
 | UI | `index.html`, `js/app.js`, `css/style.css` | Sign-in, live progress, pick cards, detail view, agent trace, free forecast table |
 
@@ -108,5 +145,6 @@ Next, before the final:
 - [Open-Meteo](https://open-meteo.com/) forecast and geocoding APIs (CC BY 4.0)
 - [Astronomy Engine](https://github.com/cosinekitty/astronomy) by Don Cross (MIT)
 - [Anthropic Claude API](https://docs.anthropic.com/) and TypeScript/JavaScript SDK
+- [Google Gen AI SDK](https://github.com/googleapis/js-genai) and Gemini on Vertex AI
 - Light-pollution estimates from [lightpollutionmap.info](https://www.lightpollutionmap.info/)
 - Code written with AI assistance (Claude Code).
