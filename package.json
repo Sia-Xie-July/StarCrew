@@ -1,0 +1,15 @@
+{
+  "name": "starcrew",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "description": "Stargazing trip planner agent that runs entirely in the browser",
+  "scripts": {
+    "test": "node --test",
+    "serve": "python3 -m http.server 8000"
+  },
+  "devDependencies": {
+    "@anthropic-ai/sdk": "1.3.0",
+    "astronomy-engine": "2.1.19"
+  }
+}

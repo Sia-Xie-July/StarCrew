@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>StarCrew</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+  <meta name="description" content="StarCrew plans stargazing nights around Boston with a Claude agent that runs in your browser on your own API key.">
+  <script type="importmap">
+  {
+    "imports": {
+      "@anthropic-ai/sdk": "https://cdn.jsdelivr.net/npm/@anthropic-ai/sdk@1.3.0/+esm",
+      "@anthropic-ai/sdk/helpers/beta/json-schema": "https://cdn.jsdelivr.net/npm/@anthropic-ai/sdk@1.3.0/helpers/beta/json-schema/+esm",
+      "astronomy-engine": "https://cdn.jsdelivr.net/npm/astronomy-engine@2.1.19/+esm"
+    }
+  }
+  </script>
+</head>
+<body>
+  <!-- Night-sky backdrop -->
+  <div class="sky" aria-hidden="true">
+    <div class="milky-way"></div>
+    <canvas id="stars"></canvas>
+    <svg class="horizon" viewBox="0 0 1440 220" preserveAspectRatio="none">
+      <path d="M0 150 L80 120 L150 140 L230 95 L310 130 L380 105 L460 140 L540 110 L620 135 L700 85 L780 125 L860 100 L940 135 L1020 95 L1100 128 L1180 104 L1260 138 L1340 112 L1440 130 L1440 220 L0 220 Z" fill="#0A0F24"/>
+      <path d="M0 175 L60 168 L64 150 L68 168 L120 172 L180 165 L184 146 L188 165 L260 170 L330 162 L334 140 L338 162 L420 172 L520 166 L524 150 L528 166 L640 174 L760 166 L764 144 L768 166 L880 172 L990 164 L994 148 L998 164 L1110 172 L1220 165 L1224 142 L1228 165 L1330 171 L1440 166 L1440 220 L0 220 Z" fill="#060A1A"/>
+    </svg>
+  </div>
+
+  <!-- Sign-in: bring your own Anthropic API key -->
+  <section id="signin" class="screen">
+    <div class="signin-card glass">
+      <p class="eyebrow">✦ StarCrew</p>
+      <h1>Plan a stargazing night<br>with your own Claude key</h1>
+      <p class="muted">StarCrew runs on <b>your</b> Anthropic API credit. Paste a key from
+        <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a>
+        to use the AI planner.</p>
+
+      <form id="signin-form" autocomplete="off">
+        <label for="api-key">Anthropic API key</label>
+        <input id="api-key" type="password" placeholder="sk-ant-…" spellcheck="false" required>
+
+        <label for="model">Model</label>
+        <select id="model"></select>
+
+        <label class="check"><input id="remember" type="checkbox"> Remember on this device</label>
+
+        <button type="submit" class="primary" id="signin-btn">Connect key</button>
+        <p id="signin-error" class="error" hidden></p>
+      </form>
+
+      <div class="privacy">
+        <p><b>Where your key goes:</b> nowhere but Anthropic. StarCrew has no server: this page runs
+          entirely in your browser and sends your key straight to api.anthropic.com with your own
+          planning requests. Without "Remember", it is cleared when you close the tab.</p>
+      </div>
+
+      <div id="local-box" class="local" hidden>
+        <p class="small"><b>Developer mode:</b> a local Ollama server is running, so you can test the
+          agent for free with a local model.</p>
+        <div class="row">
+          <select id="local-model"></select>
+          <button id="local-btn" class="secondary">Use local model</button>
+        </div>
+      </div>
+
+      <button id="guest-btn" class="ghost">Explore the forecast without a key →</button>
+    </div>
+  </section>
+
+  <!-- Main app -->
+  <section id="app" class="screen" hidden>
+    <header>
+      <div class="brand"><span class="star">✦</span> StarCrew</div>
+      <div class="account">
+        <span id="account-chip" class="chip"></span>
+        <button id="signout-btn" class="link">Sign out</button>
+      </div>
+    </header>
+
+    <main>
+      <div class="panel glass ask">
+        <h2>What do you want to see?</h2>
+        <textarea id="request" rows="2">Our group wants a clear, dark night this week, max 2 hours' drive from Cambridge. When and where should we go?</textarea>
+        <div class="examples">
+          <button class="example">Best night this week within 90 minutes?</button>
+          <button class="example">Is Saturday good for the Milky Way near Boston?</button>
+          <button class="example">Starting from Worcester, where should I go tonight?</button>
+        </div>
+        <div class="row">
+          <label>Start <input id="start-label" value="Cambridge, MA"></label>
+          <label>Max drive (min) <input id="max-drive" type="number" min="15" max="300" step="15" value="120"></label>
+          <button id="plan-btn" class="primary">Plan with Claude</button>
+          <button id="forecast-btn" class="secondary">Forecast only (free)</button>
+        </div>
+        <p id="guest-note" class="muted small" hidden>You're exploring without a key, so only the free forecast works.
+          <button class="link" id="to-signin">Connect a key</button> to use the AI planner.</p>
+      </div>
+
+      <!-- Live progress while the agent works -->
+      <div id="progress" class="panel glass progress" hidden>
+        <div class="progress-head"><span class="spinner"></span><span id="progress-text">Thinking…</span></div>
+        <ol id="live-trace" class="steps"></ol>
+      </div>
+
+      <!-- Results -->
+      <section id="results" hidden>
+        <div class="hero glass">
+          <div>
+            <p class="eyebrow" id="result-source"></p>
+            <h2 id="summary" class="summary"></h2>
+          </div>
+        </div>
+
+        <div id="picks" class="picks"></div>
+
+        <div class="two-col">
+          <div class="panel glass">
+            <div class="panel-head">
+              <h3>Group message</h3>
+              <button id="copy-btn" class="secondary small-btn">Copy</button>
+            </div>
+            <p id="group-message" class="group-message"></p>
+          </div>
+
+          <div class="panel glass">
+            <details id="trace-box">
+              <summary><h3>Agent trace</h3><span class="muted small" id="trace-count"></span></summary>
+              <p class="muted small">Every tool call, in order. Expand one to see exactly what went in and what came back.</p>
+              <ol id="trace" class="trace"></ol>
+            </details>
+            <details id="note-box" hidden>
+              <summary><h3>Model's note</h3></summary>
+              <p id="answer" class="answer"></p>
+            </details>
+            <p id="usage" class="muted small"></p>
+          </div>
+        </div>
+      </section>
+
+      <div class="panel glass" id="error-panel" hidden>
+        <p id="error-text" class="error"></p>
+      </div>
+
+      <div class="panel glass" id="forecast-panel" hidden>
+        <h2>Next 7 nights <span class="muted small" id="forecast-meta"></span></h2>
+        <div class="table-wrap"><table id="forecast-table"></table></div>
+        <p class="muted small">Usable hours = astronomical darkness with the Moon down (or under 15% lit).
+          Cloud % is the mean of GFS, ECMWF and ICON over those hours; confidence comes from how much they agree.
+          Drive times are rough estimates.</p>
+      </div>
+    </main>
+  </section>
+
+  <!-- Pick detail -->
+  <dialog id="detail" class="detail">
+    <button class="close" id="detail-close" aria-label="Close">×</button>
+    <div id="detail-body"></div>
+  </dialog>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
